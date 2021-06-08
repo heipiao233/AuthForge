@@ -3,7 +3,7 @@ loaderVersion="[36,)"
 license="MIT"
 [[mods]]
 modId="authforge"
-version="${file.jarVersion}"
+version="1.1"
 displayName="Example Mod"
 # A URL to query for updates for this mod. See the JSON update specification https://mcforge.readthedocs.io/en/latest/gettingstarted/autoupdate/
 #updateJSONURL="https://change.me.example.invalid/updates.json"

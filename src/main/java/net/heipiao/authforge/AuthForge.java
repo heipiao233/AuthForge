@@ -1,26 +1,25 @@
 package net.heipiao.authforge;
 
+import net.heipiao.authforge.events.PlayerLoginFailedEvent;
+import net.heipiao.authforge.events.PlayerLoginSuccessEvent;
+import net.heipiao.authforge.events.PlayerSignUpEvent;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.CommandSource;
 import net.minecraft.command.Commands;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.text.StringTextComponent;
-import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.EntityEvent;
-import net.minecraftforge.event.entity.item.ItemEvent;
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.player.UseHoeEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent.ItemPickupEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.event.world.WorldEvent;
-import net.minecraftforge.eventbus.api.Event;
-import net.minecraftforge.eventbus.api.GenericEvent;
+import net.minecraftforge.eventbus.api.BusBuilder;
+import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
 
 import java.sql.Connection;
@@ -46,7 +45,7 @@ public class AuthForge
     public Connection conn;
     public List<PlayerEntity> playerNotLoggedIn = new ArrayList<>();
     private double spawnX, spawnY, spawnZ;
-    public static AuthForge instance;
+    public static final IEventBus AUTHFORGE_BUS = BusBuilder.builder().build();
 
     public AuthForge() {
         try {
@@ -66,7 +65,6 @@ public class AuthForge
         MinecraftForge.EVENT_BUS.addListener(this::useHoe);
         MinecraftForge.EVENT_BUS.addListener(this::breakFarmland);
         MinecraftForge.EVENT_BUS.addListener(this::interact);
-        instance = this;
     }
 
     private void getSpawn(WorldEvent.Load event){
@@ -121,6 +119,7 @@ public class AuthForge
                                         stmt.executeUpdate();
                                         stmt.close();
                                         context.getSource().getPlayerOrException().sendMessage(new StringTextComponent("注册成功"), UUID.randomUUID());
+                                        AUTHFORGE_BUS.post(new PlayerSignUpEvent(context.getSource().getPlayerOrException(), this));
                                         playerNotLoggedIn.remove(context.getSource().getPlayerOrException());
                                     }else{
                                         throw new CommandException(new StringTextComponent("你已注册"));
@@ -143,9 +142,11 @@ public class AuthForge
                                     ResultSet rs=stmt.executeQuery();
                                     String password=rs.getString("PASSWORD");
                                     if(!BCrypt.checkpw(StringArgumentType.getString(context, "password"), password)){
+                                        AUTHFORGE_BUS.post(new PlayerLoginFailedEvent(context.getSource().getPlayerOrException(), this));
                                         throw new CommandException(new StringTextComponent("登录错误"));
                                     }else{
                                         context.getSource().getPlayerOrException().sendMessage(new StringTextComponent("登录成功"), UUID.randomUUID());
+                                        AUTHFORGE_BUS.post(new PlayerLoginSuccessEvent(context.getSource().getPlayerOrException(), this));
                                         playerNotLoggedIn.remove(context.getSource().getPlayerOrException());
                                     }
                                     stmt.close();
