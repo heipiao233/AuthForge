@@ -16,10 +16,14 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.player.UseHoeEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent.ItemPickupEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.event.world.WorldEvent;
+import net.minecraftforge.eventbus.EventBusErrorMessage;
 import net.minecraftforge.eventbus.api.BusBuilder;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.eventbus.api.IEventListener;
 import net.minecraftforge.fml.common.Mod;
 
 import java.sql.Connection;
@@ -31,13 +35,12 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.mindrot.jbcrypt.BCrypt;
-
 @Mod("authforge")
 public class AuthForge
 {
@@ -45,7 +48,9 @@ public class AuthForge
     public Connection conn;
     public List<PlayerEntity> playerNotLoggedIn = new ArrayList<>();
     private double spawnX, spawnY, spawnZ;
-    public static final IEventBus AUTHFORGE_BUS = BusBuilder.builder().build();
+    public static final IEventBus AUTHFORGE_BUS = BusBuilder.builder().setExceptionHandler(AuthForge::handleException).build();
+    public static AuthForge AfInstance;
+    private static final Logger LOGGER = LogManager.getLogger();
 
     public AuthForge() {
         try {
@@ -55,6 +60,7 @@ public class AuthForge
             e.printStackTrace();
         }
         MinecraftForge.EVENT_BUS.addListener(this::playerJoin);
+        MinecraftForge.EVENT_BUS.addListener(this::playerLeave);
         MinecraftForge.EVENT_BUS.addListener(this::regCmd);
         MinecraftForge.EVENT_BUS.addListener(this::tick);
         MinecraftForge.EVENT_BUS.addListener(this::getSpawn);
@@ -65,6 +71,11 @@ public class AuthForge
         MinecraftForge.EVENT_BUS.addListener(this::useHoe);
         MinecraftForge.EVENT_BUS.addListener(this::breakFarmland);
         MinecraftForge.EVENT_BUS.addListener(this::interact);
+        AfInstance=this;
+    }
+
+    private static void handleException(IEventBus bus, Event event, IEventListener[] listeners, int index, Throwable throwable){
+        LOGGER.error(new EventBusErrorMessage(event, index, listeners, throwable));
     }
 
     private void getSpawn(WorldEvent.Load event){
@@ -81,7 +92,7 @@ public class AuthForge
             stmt.executeUpdate("CREATE TABLE IF NOT EXISTS USERS("+
                                 // "ID INT PRIMARY KEY NOT NULL,"+
                                 "NAME TEXT NOT NULL,"+
-                                // "SALT TEXT NOT NULL,"+
+                                "SALT BOOL NOT NULL,"+
                                 "PASSWORD TEXT NOT NULL);"
             );
             String hasUserSql = "SELECT * FROM USERS WHERE NAME=?;";
@@ -99,6 +110,9 @@ public class AuthForge
         } catch (SQLException e) {
             e.printStackTrace();
         }
+    }
+    private void playerLeave(final PlayerLoggedOutEvent event){
+        playerNotLoggedIn.remove(event.getPlayer());
     }
     private void regCmd(RegisterCommandsEvent event){
         CommandDispatcher<CommandSource> dispatcher = event.getDispatcher();

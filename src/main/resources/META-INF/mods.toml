@@ -3,15 +3,16 @@ loaderVersion="[36,)"
 license="MIT"
 [[mods]]
 modId="authforge"
-version="1.1"
-displayName="Example Mod"
+version="1.3"
+displayName="锻造：认证"
 # A URL to query for updates for this mod. See the JSON update specification https://mcforge.readthedocs.io/en/latest/gettingstarted/autoupdate/
 #updateJSONURL="https://change.me.example.invalid/updates.json"
 displayURL="https://github.com/heipiao233/authforge"
-logoFile="examplemod.png"
+logoFile="authforge.png"
 credits="Mojang, MCP, Forge"
 authors="heipiao"
 description='''
+你是想在打开局域网联机时需要密码才能加入吗（只有客户端才能看见）
 '''
 [[dependencies.authforge]]
     modId="forge"
