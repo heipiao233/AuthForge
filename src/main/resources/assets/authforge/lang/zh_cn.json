@@ -1,0 +1,8 @@
+{
+    "chat.authforge.login": "请登录",
+    "chat.authforge.login_ok": "登录成功",
+    "chat.authforge.register": "请注册",
+    "chat.authforge.logged_in": "您已登录",
+    "chat.authforge.register_ok": "注册成功",
+    "chat.authforge.registered": "你已注册"
+}

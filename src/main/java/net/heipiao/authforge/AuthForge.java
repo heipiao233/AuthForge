@@ -3,15 +3,17 @@ package net.heipiao.authforge;
 import net.heipiao.authforge.events.PlayerLoginFailedEvent;
 import net.heipiao.authforge.events.PlayerLoginSuccessEvent;
 import net.heipiao.authforge.events.PlayerSignUpEvent;
-import net.minecraft.command.CommandException;
-import net.minecraft.command.CommandSource;
-import net.minecraft.command.Commands;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.text.StringTextComponent;
+import net.minecraft.commands.CommandRuntimeException;
+import net.minecraft.commands.CommandSource;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.TranslatableComponent;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.player.UseHoeEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent.ItemPickupEvent;
@@ -46,7 +48,7 @@ public class AuthForge
 {
     // private static final Logger LOGGER = LogManager.getLogger();
     public Connection conn;
-    public List<PlayerEntity> playerNotLoggedIn = new ArrayList<>();
+    public List<Player> playerNotLoggedIn = new ArrayList<>();
     private double spawnX, spawnY, spawnZ;
     public static final IEventBus AUTHFORGE_BUS = BusBuilder.builder().setExceptionHandler(AuthForge::handleException).build();
     public static AuthForge AfInstance;
@@ -68,7 +70,6 @@ public class AuthForge
         MinecraftForge.EVENT_BUS.addListener(this::placeBlock);
         MinecraftForge.EVENT_BUS.addListener(this::pickupItem);
         MinecraftForge.EVENT_BUS.addListener(this::useItem);
-        MinecraftForge.EVENT_BUS.addListener(this::useHoe);
         MinecraftForge.EVENT_BUS.addListener(this::breakFarmland);
         MinecraftForge.EVENT_BUS.addListener(this::interact);
         AfInstance=this;
@@ -92,7 +93,6 @@ public class AuthForge
             stmt.executeUpdate("CREATE TABLE IF NOT EXISTS USERS("+
                                 // "ID INT PRIMARY KEY NOT NULL,"+
                                 "NAME TEXT NOT NULL,"+
-                                "SALT BOOL NOT NULL,"+
                                 "PASSWORD TEXT NOT NULL);"
             );
             String hasUserSql = "SELECT * FROM USERS WHERE NAME=?;";
@@ -100,9 +100,9 @@ public class AuthForge
             hasUserStmt.setString(1, event.getPlayer().getName().getString());
             ResultSet hasUserRS = hasUserStmt.executeQuery();
             if(hasUserRS.next()){
-                event.getPlayer().sendMessage(new StringTextComponent("请登录"), UUID.randomUUID());
+                event.getPlayer().sendMessage(new TranslatableComponent("chat.authforge.login"), UUID.randomUUID());
             }else{
-                event.getPlayer().sendMessage(new StringTextComponent("请注册（不要用大网站密码，因为传输过程有风险）"), UUID.randomUUID());
+                event.getPlayer().sendMessage(new TranslatableComponent("chat.authforge.register"), UUID.randomUUID());
             }
             playerNotLoggedIn.add(event.getPlayer());
             hasUserStmt.close();
@@ -115,58 +115,63 @@ public class AuthForge
         playerNotLoggedIn.remove(event.getPlayer());
     }
     private void regCmd(RegisterCommandsEvent event){
-        CommandDispatcher<CommandSource> dispatcher = event.getDispatcher();
+        CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         dispatcher.register(Commands.literal("reg")
                             .then(Commands.argument("password", StringArgumentType.word())
-                            .executes((CommandContext<CommandSource> context)->{
-                                if(!playerNotLoggedIn.contains(context.getSource().getPlayerOrException())){
-                                    throw new CommandException(new StringTextComponent("你已登录"));
-                                }
-                                try {
-                                    PreparedStatement checkStmt = conn.prepareStatement("select * from users where name=?");
-                                    checkStmt.setString(1, context.getSource().getPlayerOrException().getName().getString());
-                                    if(!checkStmt.executeQuery().next()){
-                                        PreparedStatement stmt = conn.prepareStatement("INSERT INTO USERS (NAME,PASSWORD) VALUES (?,?);");
-                                        stmt.setString(1, context.getSource().getPlayerOrException().getName().getString());
-                                        String salt = BCrypt.gensalt();
-                                        stmt.setString(2, BCrypt.hashpw(StringArgumentType.getString(context, "password"), salt));
-                                        stmt.executeUpdate();
-                                        stmt.close();
-                                        context.getSource().getPlayerOrException().sendMessage(new StringTextComponent("注册成功"), UUID.randomUUID());
-                                        AUTHFORGE_BUS.post(new PlayerSignUpEvent(context.getSource().getPlayerOrException(), this));
-                                        playerNotLoggedIn.remove(context.getSource().getPlayerOrException());
-                                    }else{
-                                        throw new CommandException(new StringTextComponent("你已注册"));
+                            .executes((CommandContext<CommandSourceStack> context)->{
+                                var source = context.getSource();
+                                if(source.getEntity() instanceof Player player) {
+                                    if (!playerNotLoggedIn.contains(player)) {
+                                        throw new CommandRuntimeException(new TranslatableComponent("chat.authforge.logged_in"));
                                     }
-                                    checkStmt.close();
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
+                                    try {
+                                        PreparedStatement checkStmt = conn.prepareStatement("select * from users where name=?");
+                                        checkStmt.setString(1, player.getName().getString());
+                                        if (!checkStmt.executeQuery().next()) {
+                                            PreparedStatement stmt = conn.prepareStatement("INSERT INTO USERS (NAME,PASSWORD) VALUES (?,?);");
+                                            stmt.setString(1, player.getName().getString());
+                                            String salt = BCrypt.gensalt();
+                                            stmt.setString(2, BCrypt.hashpw(StringArgumentType.getString(context, "password"), salt));
+                                            stmt.executeUpdate();
+                                            stmt.close();
+                                            player.sendMessage(new TranslatableComponent("chat.authforge.register_ok"), UUID.randomUUID());
+                                            AUTHFORGE_BUS.post(new PlayerSignUpEvent(player, this));
+                                            playerNotLoggedIn.remove(player);
+                                        } else {
+                                            throw new CommandRuntimeException(new TranslatableComponent("chat.authforge.registered"));
+                                        }
+                                        checkStmt.close();
+                                    } catch (SQLException e) {
+                                        e.printStackTrace();
+                                    }
                                 }
                                 return 0;
                             })));
         dispatcher.register(Commands.literal("login")
                             .then(Commands.argument("password", StringArgumentType.word())
-                            .executes((CommandContext<CommandSource> context)->{
-                                if(!playerNotLoggedIn.contains(context.getSource().getPlayerOrException())){
-                                    throw new CommandException(new StringTextComponent("你已登录"));
-                                }
-                                try {
-                                    PreparedStatement stmt = conn.prepareStatement("SELECT PASSWORD FROM USERS WHERE NAME=?;");
-                                    stmt.setString(1, context.getSource().getPlayerOrException().getName().getString());
-                                    ResultSet rs=stmt.executeQuery();
-                                    String password=rs.getString("PASSWORD");
-                                    if(!BCrypt.checkpw(StringArgumentType.getString(context, "password"), password)){
-                                        AUTHFORGE_BUS.post(new PlayerLoginFailedEvent(context.getSource().getPlayerOrException(), this));
-                                        throw new CommandException(new StringTextComponent("登录错误"));
-                                    }else{
-                                        context.getSource().getPlayerOrException().sendMessage(new StringTextComponent("登录成功"), UUID.randomUUID());
-                                        AUTHFORGE_BUS.post(new PlayerLoginSuccessEvent(context.getSource().getPlayerOrException(), this));
-                                        playerNotLoggedIn.remove(context.getSource().getPlayerOrException());
+                            .executes((CommandContext<CommandSourceStack> context)->{
+                                if(context.getSource().getEntity() instanceof Player player){
+                                    if(!playerNotLoggedIn.contains(player)){
+                                        throw new CommandRuntimeException(new TranslatableComponent("chat.authforge.logged_in"));
                                     }
-                                    stmt.close();
-                                    return 0;
-                                } catch (SQLException e) {
-                                    e.printStackTrace();
+                                    try {
+                                        PreparedStatement stmt = conn.prepareStatement("SELECT PASSWORD FROM USERS WHERE NAME=?;");
+                                        stmt.setString(1, player.getName().getString());
+                                        ResultSet rs=stmt.executeQuery();
+                                        String password=rs.getString("PASSWORD");
+                                        if(!BCrypt.checkpw(StringArgumentType.getString(context, "password"), password)){
+                                            AUTHFORGE_BUS.post(new PlayerLoginFailedEvent(player, this));
+                                            throw new CommandRuntimeException(new TranslatableComponent("chat.authforge.login_fail"));
+                                        }else{
+                                            player.sendMessage(new TranslatableComponent("chat.authforge.login_ok"), UUID.randomUUID());
+                                            AUTHFORGE_BUS.post(new PlayerLoginSuccessEvent(player, this));
+                                            playerNotLoggedIn.remove(player);
+                                        }
+                                        stmt.close();
+                                        return 0;
+                                    } catch (SQLException e) {
+                                        e.printStackTrace();
+                                    }
                                 }
                                 return 0;
                             })));
@@ -199,18 +204,13 @@ public class AuthForge
             event.setCanceled(true);
         }
     }
-    private void useHoe(UseHoeEvent event){
-        if(playerNotLoggedIn.contains(event.getPlayer())){
-            event.setCanceled(true);
-        }
-    }
     private void breakFarmland(BlockEvent.FarmlandTrampleEvent event){
         if(playerNotLoggedIn.contains(event.getEntity())){
             event.setCanceled(true);
         }
     }
     private void interact(PlayerInteractEvent event){
-        if(playerNotLoggedIn.contains(event.getEntity())){
+        if(playerNotLoggedIn.contains(event.getPlayer())){
             event.setCanceled(true);
         }
     }

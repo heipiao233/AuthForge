@@ -1,0 +1,9 @@
+{
+    "chat.authforge.login": "Please login.",
+    "chat.authforge.login_ok": "Logged in.",
+    "chat.authforge.login_fail": "Login failed.",
+    "chat.authforge.register": "Please register.",
+    "chat.authforge.logged_in": "Already logged in.",
+    "chat.authforge.register_ok": "Registered.",
+    "chat.authforge.registered": "Already registered."
+}
